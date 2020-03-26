@@ -67,7 +67,7 @@
 #
 # Revision history:
 # 2020-03-26  Ludek Urban <ludek.urban@bcvsolutions.eu>
-#   * to backup encription and decription tutorial added to openssl parameter "-pbkdf2"
+#   * to "backup encryption" and "decryption tutorial" added to openssl parameter "-pbkdf2"
 # 2020-03-03  Petr Fiser  <petr.fiser@bcvsolutions.eu>
 #   * reworked packing of dumps before encryption
 #   * changed some default names, fixed typos
