@@ -51,6 +51,9 @@
 #		openssl rsautl -decrypt -inkey backups-rsa-key \
 #			-in key.bin.e -out key.bin
 # 4) Decrypt the actual backup, you will get a tarball:
+#               openssl enc -d -aes-256-cbc -in data.tar.e -out data.tar \
+#                       -pass file:key.bin
+#		- or use this command if you are using openssl 1.1.1 and newer 
 #		openssl enc -d -pbkdf2 -aes-256-cbc -in data.tar.e -out data.tar \
 #			-pass file:key.bin
 # 5) Extract the tarball:
@@ -66,8 +69,8 @@
 #			user-friendly
 #
 # Revision history:
-# 2020-03-26  Ludek Urban <ludek.urban@bcvsolutions.eu>
-#   * to "backup encryption" and "decryption tutorial" added to openssl parameter "-pbkdf2"
+# 2020-03-27  Ludek Urban <ludek.urban@bcvsolutions.eu>
+#   * added "backup encryption" and "decryption tutorial" for using openssl 1.1.1 and newer
 # 2020-03-03  Petr Fiser  <petr.fiser@bcvsolutions.eu>
 #   * reworked packing of dumps before encryption
 #   * changed some default names, fixed typos
@@ -156,6 +159,9 @@ chmod 600 current_backup.tar
 
 #encrypt the dump with current symmetric key, also add a pinch of salt
 openssl enc -aes-256-cbc -salt -pbkdf2 -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
+# If you are not using openssl 1.1.1 and newer use this command instead
+#openssl enc -aes-256-cbc -salt -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
+
 #remove unencrypted dump and key
 rm -f current_backup.tar
 
