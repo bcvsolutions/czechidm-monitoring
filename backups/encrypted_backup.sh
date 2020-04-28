@@ -82,6 +82,36 @@
 # 2016-02-25  Petr Fiser  <petr.fiser@bcvsolutions.eu>
 #		* first version of the script
 
+# functions
+
+errecho () {
+	echo -e "$@" 1>&2;
+}
+
+usage () {
+	
+	errecho "Backup script usage:";
+        errecho "-----------";
+	errecho "Use one of these parameters to set script function:";
+	errecho "-c to run encrypt for cron usage / to execute backups manually";
+	errecho "-d to run dencrypt manually - Must be used with options -o and -b. Can use options -k and -s";
+	errecho "-----------";
+	errecho "-b {\$PATH} to set path to backup file with will be decrypted. Script will also find key file with same name and in same directory if '-s' is not set.";
+	errecho "-k {\$PATH} to set path to private key";
+	errecho "-h to print this help";
+	errecho "-o {\$PATH} to set path to decrypt output file";
+	errecho "-s {\$PATH} to set path to encrypted symmetrical key";
+	errecho "-v to run in verbose mode";
+	exit 1
+}
+function_check () {
+	if [ "${FUNCTION}" != "" ]
+	then
+	        errecho "Too many function parameters";
+	        usage;
+	fi
+}
+
 # basic setup
 export PATH="/bin:/usr/bin"
 unset CDPATH
@@ -105,6 +135,91 @@ BACKUP_KEEP_DAYS="30"
 NOW=$(date +"%Y-%m-%d-%H%M%S")
 BACKUP_FILE_NAME="${BACKUP_PREFIX}${NOW}${BACKUP_SUFFIX}"
 BACKUP_AES_KEY_FILENAME="${BACKUP_AES_KEY_PREFIX}${NOW}${BACKUP_AES_KEY_SUFFIX}"
+
+# parameter processing
+# print help if no parameters
+[ $# -ne 0 ] || usage;
+
+while [ $# -gt 0 ]; do
+key="$1";
+case $key in
+	-h)
+  		usage;
+  	;;
+	-v)
+		VERBOSE="1";
+	;;
+	-c)
+		function_check ;
+		FUNCTION="1";
+	;;
+	-d)
+		function_check "${FUNCTION}";
+		FUNCTION="2";
+	;;
+	-b)
+		BACKUP_FILE_NAME_GIVEN="$2";
+		shift;
+	;;
+	-s)
+		BACKUP_AES_KEY_FILENAME_GIVEN="$2";
+		shift;
+	;;
+	-k)
+		RSA_ENC_KEY_FILE="$2";
+		shift;
+	;;
+	-o)
+		DECRYPT_OUTPUT_FILE="$2";
+		shift;
+	;;
+	*)
+  	errecho "Unknown parameter '$key $2' specified.";
+  	usage;
+  	;;
+esac
+shift; # procces next parameter or value
+done
+
+# print loaded parameters if verbose
+if [ "${VERBOSE}" == "1" ]
+then
+	errecho "Backup script laoded parameters:";
+	errecho "-----------";
+	errecho "VERBOSE: ${VERBOSE}";
+	errecho "PATH: ${PATH}";
+	errecho "BACKUP_ROOT: ${BACKUP_ROOT}";
+	errecho "BACKUP_LOC: ${BACKUP_LOC}";
+	errecho "RUN_LOCK: ${RUN_LOCK}";
+	errecho "BACKUP_PREFIX: ${BACKUP_PREFIX}";
+        errecho "BACKUP_SUFFIX: ${BACKUP_SUFFIX}";
+        errecho "BACKUP_AES_KEY_PREFIX: ${BACKUP_AES_KEY_PREFIX}";
+	errecho "BACKUP_AES_KEY_SUFFIX: ${BACKUP_AES_KEY_SUFFIX}";
+        errecho "RSA_ENC_KEY_FILE: ${RSA_ENC_KEY_FILE}";
+        errecho "BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS}";
+	errecho "NOW: ${NOW}";
+        errecho "BACKUP_FILE_NAME: ${BACKUP_FILE_NAME}";
+        errecho "BACKUP_AES_KEY_FILENAME: ${BACKUP_AES_KEY_FILENAME}";
+	errecho "FUNCTION(ENCRYPT=1,DECRYPT=2): ${FUNCTION}";
+	errecho "BACKUP_FILE_NAME_GIVEN: ${BACKUP_FILE_NAME_GIVEN}";
+        errecho "BACKUP_AES_KEY_FILENAME_GIVEN: ${BACKUP_AES_KEY_FILENAME_GIVEN}";
+	errecho "DECRYPT_OUTPUT_FILE ${DECRYPT_OUTPUT_FILE}";
+	errecho "-----------";
+	set -x;
+fi
+
+# parameter test
+
+if [ "${FUNCTION}" == "" ]
+then
+	errecho "Function parameter is not set";
+	usage;
+fi
+
+## TODO
+# temp end of ecript for development
+exit
+##
 
 # check root, must not run as root
 if test "$EUID" -eq 0; then
