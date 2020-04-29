@@ -87,6 +87,10 @@
 errecho () {
 	echo -e "$@" 1>&2;
 }
+err () {
+	errecho "$1";
+	exit "$2";
+}
 
 usage () {
 	
@@ -102,6 +106,9 @@ usage () {
 	errecho "-o {\$PATH} to set path to decrypt output file";
 	errecho "-s {\$PATH} to set path to encrypted symmetrical key";
 	errecho "-v to run in verbose mode";
+        errecho "-----------";
+	errecho "script will also load variables from '${CONFIG_FILE}'. This file must exist and be radable."
+	errecho "These variables will replace script defaults"
 	exit 1
 }
 function_check () {
@@ -117,7 +124,11 @@ export PATH="/bin:/usr/bin"
 unset CDPATH
 #directory where everything happens
 #should be empty except for backup scripts, keys and BACKUP_LOC folder
-BACKUP_ROOT="/opt/czechidm/backup"
+BACKUP_ROOT="/opt/backup"
+
+#set config file name from which will load variables
+CONFIG_FILE="${BACKUP_ROOT}/encrypted_backup.conf"
+
 #hic sunt backupes
 BACKUP_LOC="${BACKUP_ROOT}/repository"
 #lockfile
@@ -135,6 +146,15 @@ BACKUP_KEEP_DAYS="30"
 NOW=$(date +"%Y-%m-%d-%H%M%S")
 BACKUP_FILE_NAME="${BACKUP_PREFIX}${NOW}${BACKUP_SUFFIX}"
 BACKUP_AES_KEY_FILENAME="${BACKUP_AES_KEY_PREFIX}${NOW}${BACKUP_AES_KEY_SUFFIX}"
+
+# loading config file from backup root if exist
+if [ -e "${CONFIG_FILE}" ]
+then
+	# check if file can be read
+	[ -r "${CONFIG_FILE}" ] || err "Can't open config file '${CONFIG_FILE}'. Exiting" "1";
+	source "${CONFIG_FILE}"	
+
+fi
 
 # parameter processing
 # print help if no parameters
@@ -189,6 +209,7 @@ then
 	errecho "VERBOSE: ${VERBOSE}";
 	errecho "PATH: ${PATH}";
 	errecho "BACKUP_ROOT: ${BACKUP_ROOT}";
+	errecho "CONFIG_FILE: ${CONFIG_FILE}";
 	errecho "BACKUP_LOC: ${BACKUP_LOC}";
 	errecho "RUN_LOCK: ${RUN_LOCK}";
 	errecho "BACKUP_PREFIX: ${BACKUP_PREFIX}";
@@ -203,7 +224,7 @@ then
 	errecho "FUNCTION(ENCRYPT=1,DECRYPT=2): ${FUNCTION}";
 	errecho "BACKUP_FILE_NAME_GIVEN: ${BACKUP_FILE_NAME_GIVEN}";
         errecho "BACKUP_AES_KEY_FILENAME_GIVEN: ${BACKUP_AES_KEY_FILENAME_GIVEN}";
-	errecho "DECRYPT_OUTPUT_FILE ${DECRYPT_OUTPUT_FILE}";
+	errecho "DECRYPT_OUTPUT_FILE: ${DECRYPT_OUTPUT_FILE}";
 	errecho "-----------";
 	set -x;
 fi
