@@ -132,6 +132,12 @@ function_check () {
         fi
 }
 
+# permition in work dir
+wdir_wrcheck () {
+        [ -w "{$BACKUP_ROOT}" ] || err "Can't write to '{$BACKUP_ROOT}'" 1
+}
+
+
 # check script lock
 check_lock () {
         if test -e "$RUN_LOCK"; then
@@ -150,7 +156,7 @@ fi
 
 # script functions
 
-ncrypt () {
+encrypt () {
 
         check_lock;
         # check correct permitions on public async key
@@ -198,6 +204,44 @@ ncrypt () {
         #we have finished, remove lock
         unlock_script;
 }
+
+decrypt () {
+
+        #check input variables
+        [ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || errecho "Backup file parameter is not set'";
+        [ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || usage;
+        [ -r "${BACKUP_FILE_NAME_GIVEN}" ] || err "Can't open backup file: '${BACKUP_FILE_NAME_GIVEN}'" 1;
+
+        if [ "${BACKUP_AES_KEY_FILENAME_GIVEN}" == "" ]
+        then
+                basename "${BACKUP_FILE_NAME_GIVEN}" "${BACKUP_SUFFIX}"
+                [ -r "${BACKUP_FILE_NAME_GIVEN}.${BACKUP_AES_KEY_SUFFIX}" ] || err "Can't open symetric key file: '${BACKUP_FILE_NAME_GIVEN}.${BACKUP_AES_KEY_SUFFIX}'" 1;
+        fi
+
+        # check work directory and target directory
+
+        wdir_wrcheck;
+
+        # decrypt symetric key
+
+        # decrypt backup
+
+        # clen work files
+
+        # tmp   
+        exit;
+
+        #encrypt the dump with current symmetric key, also add a pinch of salt
+        if [[ "${OPENSSL_VERSION}" > "1.1.1" || "${OPENSSL_VERSION}" = "1.1.1" ]]
+        then
+                openssl enc -aes-256-cbc -salt -pbkdf2 -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
+        else
+                # If you are not using openssl 1.1.1 and newer use this command instead
+                openssl enc -aes-256-cbc -salt -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
+        fi
+
+}
+
 
 # basic setup
 export PATH="/bin:/usr/bin"
@@ -258,18 +302,23 @@ case $key in
                 FUNCTION="2";
         ;;
         -b)
+                [ "$2" != "" ] || err "Missing second parameter near -b" 1
                 BACKUP_FILE_NAME_GIVEN="$2";
                 shift;
         ;;
         -s)
+                [ "$2" != "" ] || err "Missing second parameter near -s" 1
                 BACKUP_AES_KEY_FILENAME_GIVEN="$2";
                 shift;
         ;;
         -k)
+                [ "$2" != "" ] || err "Missing second parameter near -k" 1
                 RSA_ENC_KEY_FILE="$2";
                 shift;
         ;;
         -o)
+                [ "$2" != "" ] || err "Missing second parameter near -o" 1
+
                 DECRYPT_OUTPUT_FILE="$2";
                 shift;
         ;;
@@ -356,7 +405,6 @@ case "${FUNCTION}" in
 esac
 
 exit 0
-
 
 
 
