@@ -53,7 +53,7 @@
 # 4) Decrypt the actual backup, you will get a tarball:
 #               openssl enc -d -aes-256-cbc -in data.tar.e -out data.tar \
 #                       -pass file:key.bin
-#		- or use this command if you are using openssl 1.1.1 and newer 
+#		- or use this command if you are using openssl 1.1.1 and newer
 #		openssl enc -d -pbkdf2 -aes-256-cbc -in data.tar.e -out data.tar \
 #			-pass file:key.bin
 # 5) Extract the tarball:
@@ -69,6 +69,8 @@
 #			user-friendly
 #
 # Revision history:
+# 2020-05-15  Ludek Urban <ludek.urban@bcvsolutions.eu>
+#   * added decrypt function rewrite whole script to functions
 # 2020-03-27  Ludek Urban <ludek.urban@bcvsolutions.eu>
 #   * added "backup encryption" and "decryption tutorial" for using openssl 1.1.1 and newer
 # 2020-03-03  Petr Fiser  <petr.fiser@bcvsolutions.eu>
@@ -84,17 +86,17 @@
 
 # basic functions
 
-
 errecho () {
 	echo -e "$@" 1>&2;
 }
 err () {
 	errecho "$1";
+	errecho "$0 exiting"
 	exit "$2";
 }
 
 usage () {
-	
+
 	errecho "Backup script usage:";
         errecho "-----------";
 	errecho "Use one of these parameters to set script function:";
@@ -112,43 +114,43 @@ usage () {
 	errecho "These variables will replace script defaults"
 	exit 1
 }
+
 #create lock so we cannot run it more than once
 lock_script () {
-        touch "${RUN_LOCK}"
+	touch "${RUN_LOCK}"
 }
 
 unlock_script () {
-        rm -f "${RUN_LOCK}"
+	rm -f "${RUN_LOCK}"
 }
 
 ## check functions
 
-# check if script function is already set 
+# check if script function is already set
 function_check () {
-        if [ "${FUNCTION}" != "" ]
-        then
-                errecho "Too many function parameters";
-                usage;
-        fi
+	if [ "${FUNCTION}" != "" ]
+	then
+	        errecho "Too many function parameters";
+	        usage;
+	fi
 }
 
-# permition in work dir
-wdir_wrcheck () {
-        [ -w "{$BACKUP_ROOT}" ] || err "Can't write to '{$BACKUP_ROOT}'" 1
+# write permition check in directory
+dir_wrtcheck () {
+	[ -w "${1}" ] || err "Can't write to '${1}'" 1
 }
-
 
 # check script lock
 check_lock () {
-        if test -e "$RUN_LOCK"; then
-                echo "${RUN_LOCK} exists. Assuming ${0} already running." >&2
-                exit 1
-        fi
+	if test -e "$RUN_LOCK"; then
+        	echo "${RUN_LOCK} exists. Assuming ${0} already running." >&2
+        	exit 1
+	fi
 }
 
 # check public async key
 check_pub_async_key () {
-        if test ! $(stat -c %a "${RSA_ENC_KEY_FILE}") -eq 400 || ! test $(stat -c %u "${RSA_ENC_KEY_FILE}") -eq "$EUID" || ! test $(stat -c %g "${RSA_ENC_KEY_FILE}") -eq `id -g`; then
+	if test ! $(stat -c %a "${RSA_ENC_KEY_FILE}") -eq 400 || ! test $(stat -c %u "${RSA_ENC_KEY_FILE}") -eq "$EUID" || ! test $(stat -c %g "${RSA_ENC_KEY_FILE}") -eq `id -g`; then
         echo "File ${RSA_ENC_KEY_FILE} has incorrect permissions (should be 400) or owner/group (should be `stat -c %U ${0}`)." >&2
         exit 1
 fi
@@ -158,90 +160,108 @@ fi
 
 encrypt () {
 
-        check_lock;
-        # check correct permitions on public async key
-        check_pub_async_key;
-        lock_script;
+	check_lock;
+	# check correct permitions on public async key
+	check_pub_async_key;
+	lock_script;
 
-        #generate symmetric key here and push it (asymmetrically encrypted) into a file. this file will accompany symmetrically encrypted tar
-        #we use aes-256 to encrypt our dumps so we need 32*8=256b symmetric key
-        SYM_KEY=`openssl rand -base64 32`
+	#generate symmetric key here and push it (asymmetrically encrypted) into a file. this file will accompany symmetrically encrypted tar
+	#we use aes-256 to encrypt our dumps so we need 32*8=256b symmetric key
+	SYM_KEY=`openssl rand -base64 32`
 
-        #encrypt the symmetric key
-        openssl rsautl -encrypt -pubin -inkey "$RSA_ENC_KEY_FILE" -out current_key.bin.e <<< "$SYM_KEY"
-        chmod 600 current_key.bin.e
+	#encrypt the symmetric key
+	openssl rsautl -encrypt -pubin -inkey "$RSA_ENC_KEY_FILE" -out current_key.bin.e <<< "$SYM_KEY"
+	chmod 600 current_key.bin.e
 
-        #do the dump
-        # say we run the actual backup and create dump1.dmp, dump2.dmp and dump3.dmp here
-        # STRONGLY ADVISED TO GZIP YOUR BACKUPS, SCRIPT DOES NOT DO THAT FOR YOU !!!
+	#do the dump
+	# say we run the actual backup and create dump1.dmp, dump2.dmp and dump3.dmp here
+	# STRONGLY ADVISED TO GZIP YOUR BACKUPS, SCRIPT DOES NOT DO THAT FOR YOU !!!
 
-        #pack the dump
-        #tar usage "tar [parameters] archive_name file1 [file2 file3 ...]"
-        tar --remove-files -cf current_backup.tar PUT-YOUR-FILES-HERE
-        
+	#pack the dump
+	#tar usage "tar [parameters] archive_name file1 [file2 file3 ...]"
+	tar --remove-files -cf current_backup.tar PUT-YOUR-FILES-HERE
 
-        chmod 600 current_backup.tar
+	chmod 600 current_backup.tar
 
-        #encrypt the dump with current symmetric key, also add a pinch of salt
-        if [[ "${OPENSSL_VERSION}" > "1.1.1" || "${OPENSSL_VERSION}" = "1.1.1" ]]
-        then
-                openssl enc -aes-256-cbc -salt -pbkdf2 -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
-        else
-                # If you are not using openssl 1.1.1 and newer use this command instead
-                openssl enc -aes-256-cbc -salt -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
-        fi
-	        #remove unencrypted dump and key
-        rm -f current_backup.tar
+	#encrypt the dump with current symmetric key, also add a pinch of salt
+	if [[ "${OPENSSL_VERSION}" > "1.1.1" || "${OPENSSL_VERSION}" = "1.1.1" ]]
+	then
+		openssl enc -aes-256-cbc -salt -pbkdf2 -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
+	else
+		# If you are not using openssl 1.1.1 and newer use this command instead
+		openssl enc -aes-256-cbc -salt -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
+	fi
 
-        #move encrypted things to backup_loc
-        mv current_backup.tar.e "${BACKUP_LOC}/${BACKUP_FILE_NAME}"
-        mv current_key.bin.e "${BACKUP_LOC}/${BACKUP_AES_KEY_FILENAME}"
+	#remove unencrypted dump and key
+	rm -f current_backup.tar
 
-        #clean up backups older than $BACKUP_KEEP_DAYS days
-        find "$BACKUP_LOC" -name "${BACKUP_PREFIX}*${BACKUP_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
-        find "$BACKUP_LOC" -name "${BACKUP_AES_KEY_PREFIX}*${BACKUP_AES_KEY_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
+	#move encrypted things to backup_loc
+	mv current_backup.tar.e "${BACKUP_LOC}/${BACKUP_FILE_NAME}"
+	mv current_key.bin.e "${BACKUP_LOC}/${BACKUP_AES_KEY_FILENAME}"
 
-        #we have finished, remove lock
-        unlock_script;
+	#clean up backups older than $BACKUP_KEEP_DAYS days
+	find "$BACKUP_LOC" -name "${BACKUP_PREFIX}*${BACKUP_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
+	find "$BACKUP_LOC" -name "${BACKUP_AES_KEY_PREFIX}*${BACKUP_AES_KEY_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
+
+	#we have finished, remove lock
+	unlock_script;
 }
 
 decrypt () {
 
-        #check input variables
-        [ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || errecho "Backup file parameter is not set'";
-        [ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || usage;
-        [ -r "${BACKUP_FILE_NAME_GIVEN}" ] || err "Can't open backup file: '${BACKUP_FILE_NAME_GIVEN}'" 1;
+	##check input variables
 
-        if [ "${BACKUP_AES_KEY_FILENAME_GIVEN}" == "" ]
+	# check is script get backup to process and can open it
+	[ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || errecho "Backup file parameter is not set'";
+	[ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || usage;
+	[ -r "${BACKUP_FILE_NAME_GIVEN}" ] || err "Can't open backup file: '${BACKUP_FILE_NAME_GIVEN}'" 1;
+
+	# check if backup's symetric key is loaded. If not generate name of symetric backup's key
+	if [ "${BACKUP_AES_KEY_FILENAME_GIVEN}" == "" ]
+	then
+		BACKUP_AES_KEY_FILENAME_GIVEN="${BACKUP_FILE_NAME_GIVEN%${BACKUP_SUFFIX}}${BACKUP_AES_KEY_SUFFIX}"
+	fi
+
+	# check backup's symetric key
+	[ -r "${BACKUP_AES_KEY_FILENAME_GIVEN}" ] || err "Can't open symetric key file: '${BACKUP_AES_KEY_FILENAME_GIVEN}'" 1;
+
+	# check output file veriable and directory
+	[ "${DECRYPT_OUTPUT_FILE}" != "" ] || errecho "Output file parameter is not set'";
+	[ "${DECRYPT_OUTPUT_FILE}" != "" ] || usage;
+	[ -r "${DECRYPT_OUTPUT_FILE}" ] && err "Output file '${DECRYPT_OUTPUT_FILE}' already axist" 1;
+
+	# check if backup's private async key is loaded. If not generate name of backup's private async key
+        if [ "${RSA_ENC_KEY_FILE_PRIV}" == "" ]
         then
-                basename "${BACKUP_FILE_NAME_GIVEN}" "${BACKUP_SUFFIX}"
-                [ -r "${BACKUP_FILE_NAME_GIVEN}.${BACKUP_AES_KEY_SUFFIX}" ] || err "Can't open symetric key file: '${BACKUP_FILE_NAME_GIVEN}.${BACKUP_AES_KEY_SUFFIX}'" 1;
+                RSA_ENC_KEY_FILE_PRIV="${RSA_ENC_KEY_FILE%.*}"
         fi
 
-        # check work directory and target directory
+        # check backup's private async key
+        [ -r "${RSA_ENC_KEY_FILE_PRIV}" ] || err "Can't open private async key file: '${RSA_ENC_KEY_FILE_PRIV}'" 1;
 
-        wdir_wrcheck;
+	# check if script can write into output directory
+	DECRYPT_OUTPUT_FILE_DIR=$( dirname "${DECRYPT_OUTPUT_FILE}" )
+	dir_wrtcheck "${DECRYPT_OUTPUT_FILE_DIR}";
 
-        # decrypt symetric key
+	# check if script can write into work directory
+	dir_wrtcheck ${BACKUP_ROOT};
 
-        # decrypt backup
 
-        # clen work files
+	# decrypt symetric key
+	openssl rsautl -decrypt -inkey "${RSA_ENC_KEY_FILE_PRIV}"  -in "${BACKUP_AES_KEY_FILENAME_GIVEN}" -out "${WORKING_DECRYPT_KEY}"
 
-        # tmp   
-        exit;
-
-        #encrypt the dump with current symmetric key, also add a pinch of salt
+	# decrypt the backup with current symmetric key
         if [[ "${OPENSSL_VERSION}" > "1.1.1" || "${OPENSSL_VERSION}" = "1.1.1" ]]
         then
-                openssl enc -aes-256-cbc -salt -pbkdf2 -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
-        else
+        	openssl enc -d -pbkdf2 -aes-256-cbc -in "${BACKUP_FILE_NAME_GIVEN}" -out "${DECRYPT_OUTPUT_FILE}" -pass file:"${WORKING_DECRYPT_KEY}"
+	else
                 # If you are not using openssl 1.1.1 and newer use this command instead
-                openssl enc -aes-256-cbc -salt -in "current_backup.tar" -out "current_backup.tar.e" -pass stdin <<< "$SYM_KEY"
+                openssl enc -d -aes-256-cbc -in "${BACKUP_FILE_NAME_GIVEN}" -out "${DECRYPT_OUTPUT_FILE}" -pass file:"${WORKING_DECRYPT_KEY}"
         fi
 
+	# clean work files
+	rm "${WORKING_DECRYPT_KEY}"
 }
-
 
 # basic setup
 export PATH="/bin:/usr/bin"
@@ -271,12 +291,15 @@ NOW=$(date +"%Y-%m-%d-%H%M%S")
 BACKUP_FILE_NAME="${BACKUP_PREFIX}${NOW}${BACKUP_SUFFIX}"
 BACKUP_AES_KEY_FILENAME="${BACKUP_AES_KEY_PREFIX}${NOW}${BACKUP_AES_KEY_SUFFIX}"
 
+# set temp key file for decrypt
+WORKING_DECRYPT_KEY="${BACKUP_ROOT}/tmp_decrypt_key"
+
 # loading config file from backup root if exist
 if [ -e "${CONFIG_FILE}" ]
 then
-        # check if file can be read
-        [ -r "${CONFIG_FILE}" ] || err "Can't open config file '${CONFIG_FILE}'. Exiting" "1";
-        source "${CONFIG_FILE}"
+	# check if file can be read
+	[ -r "${CONFIG_FILE}" ] || err "Can't open config file '${CONFIG_FILE}'. Exiting" "1";
+	source "${CONFIG_FILE}"
 
 fi
 
@@ -287,45 +310,44 @@ fi
 while [ $# -gt 0 ]; do
 key="$1";
 case $key in
-        -h)
-                usage;
-        ;;
-        -v)
-                VERBOSE="1";
-        ;;
-        -c)
-                function_check ;
-                FUNCTION="1";
-        ;;
-        -d)
-                function_check ;
-                FUNCTION="2";
-        ;;
-        -b)
-                [ "$2" != "" ] || err "Missing second parameter near -b" 1
-                BACKUP_FILE_NAME_GIVEN="$2";
-                shift;
-        ;;
-        -s)
-                [ "$2" != "" ] || err "Missing second parameter near -s" 1
-                BACKUP_AES_KEY_FILENAME_GIVEN="$2";
-                shift;
-        ;;
-        -k)
-                [ "$2" != "" ] || err "Missing second parameter near -k" 1
-                RSA_ENC_KEY_FILE="$2";
-                shift;
-        ;;
-        -o)
-                [ "$2" != "" ] || err "Missing second parameter near -o" 1
-
-                DECRYPT_OUTPUT_FILE="$2";
-                shift;
-        ;;
-        *)
-        errecho "Unknown parameter '$key $2' specified.";
-        usage;
-        ;;
+	-h)
+  		usage;
+  	;;
+	-v)
+		VERBOSE="1";
+	;;
+	-c)
+		function_check ;
+		FUNCTION="1";
+	;;
+	-d)
+		function_check ;
+		FUNCTION="2";
+	;;
+	-b)
+		[ "$2" != "" ] || err "Missing second parameter near -b" 1
+		BACKUP_FILE_NAME_GIVEN="$2";
+		shift;
+	;;
+	-s)
+		[ "$2" != "" ] || err "Missing second parameter near -s" 1
+		BACKUP_AES_KEY_FILENAME_GIVEN="$2";
+		shift;
+	;;
+	-k)
+		[ "$2" != "" ] || err "Missing second parameter near -k" 1
+		RSA_ENC_KEY_FILE_PRIV="$2";
+		shift;
+	;;
+	-o)
+		[ "$2" != "" ] || err "Missing second parameter near -o" 1
+		DECRYPT_OUTPUT_FILE="$2";
+		shift;
+	;;
+	*)
+  	errecho "Unknown parameter '$key $2' specified.";
+  	usage;
+  	;;
 esac
 shift; # procces next parameter or value
 done
@@ -333,37 +355,39 @@ done
 # print loaded parameters if verbose
 if [ "${VERBOSE}" == "1" ]
 then
-        errecho "Backup script laoded parameters:";
-        errecho "-----------";
-        errecho "VERBOSE: ${VERBOSE}";
-        errecho "PATH: ${PATH}";
-        errecho "BACKUP_ROOT: ${BACKUP_ROOT}";
-        errecho "CONFIG_FILE: ${CONFIG_FILE}";
-        errecho "BACKUP_LOC: ${BACKUP_LOC}";
-        errecho "RUN_LOCK: ${RUN_LOCK}";
-        errecho "BACKUP_PREFIX: ${BACKUP_PREFIX}";
+	errecho "Backup script laoded parameters:";
+	errecho "-----------";
+	errecho "VERBOSE: ${VERBOSE}";
+	errecho "PATH: ${PATH}";
+	errecho "BACKUP_ROOT: ${BACKUP_ROOT}";
+	errecho "CONFIG_FILE: ${CONFIG_FILE}";
+	errecho "BACKUP_LOC: ${BACKUP_LOC}";
+	errecho "RUN_LOCK: ${RUN_LOCK}";
+	errecho "BACKUP_PREFIX: ${BACKUP_PREFIX}";
         errecho "BACKUP_SUFFIX: ${BACKUP_SUFFIX}";
         errecho "BACKUP_AES_KEY_PREFIX: ${BACKUP_AES_KEY_PREFIX}";
-        errecho "BACKUP_AES_KEY_SUFFIX: ${BACKUP_AES_KEY_SUFFIX}";
+	errecho "BACKUP_AES_KEY_SUFFIX: ${BACKUP_AES_KEY_SUFFIX}";
         errecho "RSA_ENC_KEY_FILE: ${RSA_ENC_KEY_FILE}";
+	errecho "RSA_ENC_KEY_FILE_PRIV: ${RSA_ENC_KEY_FILE_PRIV}"
         errecho "BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS}";
-        errecho "NOW: ${NOW}";
+	errecho "NOW: ${NOW}";
         errecho "BACKUP_FILE_NAME: ${BACKUP_FILE_NAME}";
         errecho "BACKUP_AES_KEY_FILENAME: ${BACKUP_AES_KEY_FILENAME}";
-        errecho "FUNCTION(ENCRYPT=1,DECRYPT=2): ${FUNCTION}";
-        errecho "BACKUP_FILE_NAME_GIVEN: ${BACKUP_FILE_NAME_GIVEN}";
+	errecho "FUNCTION(ENCRYPT=1,DECRYPT=2): ${FUNCTION}";
+	errecho "BACKUP_FILE_NAME_GIVEN: ${BACKUP_FILE_NAME_GIVEN}";
         errecho "BACKUP_AES_KEY_FILENAME_GIVEN: ${BACKUP_AES_KEY_FILENAME_GIVEN}";
-        errecho "DECRYPT_OUTPUT_FILE: ${DECRYPT_OUTPUT_FILE}";
-        errecho "-----------";
-        set -x;
+	errecho "DECRYPT_OUTPUT_FILE: ${DECRYPT_OUTPUT_FILE}";
+	errecho "WORKING_DECRYPT_KEY: ${WORKING_DECRYPT_KEY}";
+	errecho "-----------";
+	set -x;
 fi
 
 # parameter test
 
 if [ "${FUNCTION}" == "" ]
 then
-        errecho "Function parameter is not set";
-        usage;
+	errecho "Function parameter is not set";
+	usage;
 fi
 
 ## run script checks
@@ -371,46 +395,36 @@ fi
 
 # check root, must not run as root
 if test "$EUID" -eq 0; then
-        echo "Script MUST NOT be run as root." >&2
-        exit 1
+	echo "Script MUST NOT be run as root." >&2
+	exit 1
 fi
 
 # check binaries we need
 if test ! -x `which tar`; then
-        echo "'tar' not found or not executable" >&2
-        exit 1
+	echo "'tar' not found or not executable" >&2
+	exit 1
 fi
 if test ! -x `which openssl`; then
-        echo "'openssl' not found or not executable" >&2
-        exit 1
+	echo "'openssl' not found or not executable" >&2
+	exit 1
 fi
 
 #set openssl version
-OPENSSL_VERSION="$( openssl version |cut -d ' ' -f2 )"
+OPENSSL_VERSION="$( openssl version | cut -d ' ' -f2 )"
 
 #cd to our working dir
 cd "$BACKUP_ROOT"
 
 case "${FUNCTION}" in
-        1)
-                encrypt;
-                ;;
-        2)
-                #decrypt;
-                errecho "TODO decrypt"
-                ;;
-        *)
-                err "interenal error" 1;
-                ;;
+	1)
+		encrypt;
+		;;
+	2)
+		decrypt;
+		;;
+	*)
+		err "internal error" 1;
+		;;
 esac
 
 exit 0
-
-
-
-
-
-
-
-
-
