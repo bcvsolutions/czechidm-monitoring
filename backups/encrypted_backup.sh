@@ -42,8 +42,10 @@
 #	/path/encrypted_backup.sh  -c
 #
 # Recovering backups with script:
-# When you recovering backup from default directories run backup script with "-d" option to decrypt. You also need specify file wich will be
-# recovered with "-b" and output file with "-o". You don't need to specify key names when simetric key differs only in postfix and asymetric key
+# When you recovering backup from default directories run backup script
+# with "-d" option to decrypt. You also need specify file wich will be
+# recovered with "-b" and output file with "-o". You don't need to specify key names
+# when simetric key differs only in postfix and asymetric key
 # is in script workdir.
 # example:
 #
@@ -69,7 +71,7 @@
 # 4) Decrypt the actual backup, you will get a tarball:
 #               openssl enc -d -aes-256-cbc -in data.tar.e -out data.tar \
 #                       -pass file:key.bin
-#		- or use this command if you are using openssl 1.1.1 and newer 
+#		- or use this command if you are using openssl 1.1.1 and newer
 #		openssl enc -d -pbkdf2 -aes-256-cbc -in data.tar.e -out data.tar \
 #			-pass file:key.bin
 # 5) Extract the tarball:
@@ -108,25 +110,41 @@ errecho () {
 err () {
 	errecho "$1";
 	errecho "$0 exiting"
-	exit "$2";
+	exit;
 }
 
 usage () {
-	
+
 	errecho "Backup script usage:";
-        errecho "-----------";
+  errecho "-----------";
+	errecho "SYNOPSIS:";
+	errecho "$0 {-c|-d|-h} [OPTIONS]"
+	errecho "$0 -d -o FILE -b FILE [-s FILE] [-k FILE]  [-v]"
+	errecho ""
 	errecho "Use one of these action parameters to set what will script do:";
-	errecho "-c to run encrypt for cron usage / to execute backups manually";
-	errecho "-d to run dencrypt manually - Must be used with options -o and -b. Can use options -k and -s";
+	errecho "ACTIONS:";
+	errecho ""
+	errecho "-c"
+	errecho "	To run encrypt with clean backup for cron usage / to execute backups manually";
+	errecho "-d"
+	errecho "	To run decrypt manually - Must be used with options -o and -b. Can use options -k and -s";
+	errecho "-h"
+	errecho "	To print this help";
 	errecho "-----------";
-	errecho "-b {\$PATH} to set path to backup file with will be decrypted. Script will also find key file with same name and in same directory if '-s' is not set.";
-	errecho "-k {\$PATH} to set path to private key";
-	errecho "-h to print this help";
-	errecho "-o {\$PATH} to set path to decrypt output file";
-	errecho "-s {\$PATH} to set path to encrypted symmetrical key";
-	errecho "-v to run in verbose mode";
-        errecho "-----------";
-	errecho "script will also load variables from '${CONFIG_FILE}'. This file must exist and be radable."
+	errecho "OPTIONS:";
+	errecho ""
+	errecho "-b FILE"
+	errecho "	FILE is path to file which will be decrypted. Script will also find key file with same name and in same directory if '-s' is not set.";
+	errecho "-s FILE"
+	errecho "	FILE to set path to encrypted symmetrical key";
+	errecho "-k FILE"
+	errecho "	FILE to set path to private key.";
+	errecho "-o FILE"
+	errecho "	FILE is output file for DECRYPT action";
+	errecho "-v"
+	errecho "	To run in verbose mode";
+	errecho "-----------";
+	errecho "Script will also load variables from '${CONFIG_FILE}'. This file must exist and be radable."
 	errecho "These variables will replace script defaults"
 	exit 1
 }
@@ -144,7 +162,7 @@ unlock_script () {
 
 # write permition check in directory
 dir_wrtcheck () {
-	[ -w "${1}" ] || err "Can't write to '${1}'" 1
+	[ -w "${1}" ] || err "Can't write to '${1}'"
 }
 
 # check script lock
@@ -155,8 +173,8 @@ check_lock () {
 	fi
 }
 
-# check public async key
-check_pub_async_key () {
+# check public asymetric key
+check_pub_asymetric_key () {
 	if test ! $(stat -c %a "${RSA_ENC_KEY_FILE}") -eq 400 || ! test $(stat -c %u "${RSA_ENC_KEY_FILE}") -eq "$EUID" || ! test $(stat -c %g "${RSA_ENC_KEY_FILE}") -eq `id -g`; then
         echo "File ${RSA_ENC_KEY_FILE} has incorrect permissions (should be 400) or owner/group (should be `stat -c %U ${0}`)." >&2
         exit 1
@@ -168,8 +186,8 @@ fi
 encrypt () {
 
 	check_lock;
-	# check correct permitions on public async key
-	check_pub_async_key;
+	# check correct permitions on public asymetric key
+	check_pub_asymetric_key;
 	lock_script;
 
 	#generate symmetric key here and push it (asymmetrically encrypted) into a file. this file will accompany symmetrically encrypted tar
@@ -183,12 +201,12 @@ encrypt () {
 	#do the dump
 	# say we run the actual backup and create dump1.dmp, dump2.dmp and dump3.dmp here
 	# STRONGLY ADVISED TO GZIP YOUR BACKUPS, SCRIPT DOES NOT DO THAT FOR YOU !!!
-	
+
 	## TODO - create the dump
 
 	#pack the dump
 	#tar usage "tar [parameters] archive_name file1 [file2 file3 ...]"
-	
+
 	##TODO - pack the dump
 	#tar --remove-files -cf current_backup.tar PUT-YOUR-FILES-HERE
 
@@ -210,10 +228,6 @@ encrypt () {
 	mv current_backup.tar.e "${BACKUP_LOC}/${BACKUP_FILE_NAME}"
 	mv current_key.bin.e "${BACKUP_LOC}/${BACKUP_AES_KEY_FILENAME}"
 
-	#clean up backups older than $BACKUP_KEEP_DAYS days
-	find "$BACKUP_LOC" -name "${BACKUP_PREFIX}*${BACKUP_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
-	find "$BACKUP_LOC" -name "${BACKUP_AES_KEY_PREFIX}*${BACKUP_AES_KEY_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
-
 	#we have finished, remove lock
 	unlock_script;
 }
@@ -225,36 +239,36 @@ decrypt () {
 	# check is script get backup to process and can open it
 	[ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || errecho "Backup file parameter is not set'";
 	[ "${BACKUP_FILE_NAME_GIVEN}" != "" ] || usage;
-	[ -r "${BACKUP_FILE_NAME_GIVEN}" ] || err "Can't open backup file: '${BACKUP_FILE_NAME_GIVEN}'" 1;	
+	[ -r "${BACKUP_FILE_NAME_GIVEN}" ] || err "Can't open backup file: '${BACKUP_FILE_NAME_GIVEN}'";
 
-	# check if backup's symetric key is loaded. If not generate name of symetric backup's key 
+	# check if backup's symetric key is loaded. If not generate name of symetric backup's key
 	if [ "${BACKUP_AES_KEY_FILENAME_GIVEN}" == "" ]
 	then
 		BACKUP_AES_KEY_FILENAME_GIVEN="${BACKUP_FILE_NAME_GIVEN%${BACKUP_SUFFIX}}${BACKUP_AES_KEY_SUFFIX}"
 	fi
-	
-	# check backup's symetric key
-	[ -r "${BACKUP_AES_KEY_FILENAME_GIVEN}" ] || err "Can't open symetric key file: '${BACKUP_AES_KEY_FILENAME_GIVEN}'" 1;
 
-	# check output file veriable and directory	
+	# check backup's symetric key
+	[ -r "${BACKUP_AES_KEY_FILENAME_GIVEN}" ] || err "Can't open symetric key file: '${BACKUP_AES_KEY_FILENAME_GIVEN}'";
+
+	# check output file veriable and directory
 	[ "${DECRYPT_OUTPUT_FILE}" != "" ] || errecho "Output file parameter is not set'";
 	[ "${DECRYPT_OUTPUT_FILE}" != "" ] || usage;
-	[ -r "${DECRYPT_OUTPUT_FILE}" ] && err "Output file '${DECRYPT_OUTPUT_FILE}' already axist" 1;
+	[ -r "${DECRYPT_OUTPUT_FILE}" ] && err "Output file '${DECRYPT_OUTPUT_FILE}' already axist";
 
-	# check if backup's private async key is loaded. If not generate name of backup's private async key 
+	# check if backup's private asymetric key is loaded. If not generate name of backup's private async key
         if [ "${RSA_ENC_KEY_FILE_PRIV}" == "" ]
         then
                 RSA_ENC_KEY_FILE_PRIV="${RSA_ENC_KEY_FILE%.*}"
         fi
 
-        # check backup's private async key
-        [ -r "${RSA_ENC_KEY_FILE_PRIV}" ] || err "Can't open private async key file: '${RSA_ENC_KEY_FILE_PRIV}'" 1;
+        # check backup's private asymetric key
+        [ -r "${RSA_ENC_KEY_FILE_PRIV}" ] || err "Can't open private asymetric key file: '${RSA_ENC_KEY_FILE_PRIV}'";
 
 	# check if script can write into output directory
 	DECRYPT_OUTPUT_FILE_DIR=$( dirname "${DECRYPT_OUTPUT_FILE}" )
 	dir_wrtcheck "${DECRYPT_OUTPUT_FILE_DIR}";
 
-	# check if script can write into work directory 
+	# check if script can write into work directory
 	dir_wrtcheck ${BACKUP_ROOT};
 
 
@@ -269,10 +283,19 @@ decrypt () {
                 # If you are not using openssl 1.1.1 and newer use this command instead
                 openssl enc -d -aes-256-cbc -in "${BACKUP_FILE_NAME_GIVEN}" -out "${DECRYPT_OUTPUT_FILE}" -pass file:"${WORKING_DECRYPT_KEY}"
         fi
-	
+
 	# clean work files
 	rm "${WORKING_DECRYPT_KEY}"
 }
+
+clean_backup () {
+
+	#clean up backups older than $BACKUP_KEEP_DAYS days
+	find "$BACKUP_LOC" -name "${BACKUP_PREFIX}*${BACKUP_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
+	find "$BACKUP_LOC" -name "${BACKUP_AES_KEY_PREFIX}*${BACKUP_AES_KEY_SUFFIX}" -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete
+
+}
+
 
 # basic setup
 export PATH="/bin:/usr/bin"
@@ -280,6 +303,8 @@ unset CDPATH
 
 #directory where everything happens
 #should be empty except for backup scripts, keys and BACKUP_LOC folder
+
+[[ -x $(which realpath) ]] || err "'realpath' not found or not executable";
 SCRIPT_PATH="$( realpath -P "$0" )"
 BACKUP_ROOT="$( dirname "${SCRIPT_PATH}" )"
 
@@ -287,8 +312,9 @@ BACKUP_ROOT="$( dirname "${SCRIPT_PATH}" )"
 CONFIG_FILE="${BACKUP_ROOT}/encrypted_backup.conf"
 
 # check if config file can be read
-[ -r "${CONFIG_FILE}" ] || err "Can't open config file '${CONFIG_FILE}'. Exiting" "1";
-source "${CONFIG_FILE}"	
+[ -r "${CONFIG_FILE}" ] || err "Can't open config file '${CONFIG_FILE}'. Exiting";
+# source config file
+. "${CONFIG_FILE}"
 
 
 # parameter processing
@@ -341,7 +367,7 @@ then
 	errecho "-----------";
 	errecho "VERBOSE: ${VERBOSE}";
 	errecho "PATH: ${PATH}";
-	errecho "BACKUP_ROOT: ${BACKUP_ROOT}";	
+	errecho "BACKUP_ROOT: ${BACKUP_ROOT}";
 	errecho "CONFIG_FILE: ${CONFIG_FILE}";
 	errecho "BACKUP_LOC: ${BACKUP_LOC}";
 	errecho "RUN_LOCK: ${RUN_LOCK}";
@@ -404,7 +430,7 @@ OPENSSL_VERSION="$( openssl version | cut -d ' ' -f2 )"
 #cd to our working dir
 cd "$BACKUP_ROOT"
 
-[ "${ENCRYPT}" == 1 ] && encrypt;
+[ "${ENCRYPT}" == 1 ] && encrypt && clean_backup ;
 [ "${DECRYPT}" == 1 ] && decrypt;
 
 exit 0
